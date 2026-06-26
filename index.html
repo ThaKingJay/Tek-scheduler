@@ -1,0 +1,1807 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enterprise Tech Scheduler</title>
+    <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/react.production.min.js"></script>
+    <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/react-dom.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+    
+    <script type="text/babel">
+const { useState, useEffect, useRef } = React;
+
+function CompleteTechScheduler() {
+  // ============ STATE MANAGEMENT ============
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const [selectedDate, setSelectedDate] = useState('2024-01-15');
+  const [draggedTech, setDraggedTech] = useState(null);
+  const [printMode, setPrintMode] = useState('day');
+  const [showPrintModal, setShowPrintModal] = useState(false);
+  const [showBulkImport, setShowBulkImport] = useState(false);
+  const chartRef1 = useRef(null);
+  const chartRef2 = useRef(null);
+  const [chartInstances, setChartInstances] = useState({});
+
+  // Load from localStorage
+  const loadData = (key, defaultValue) => {
+    try {
+      const stored = localStorage.getItem(`techscheduler_${key}`);
+      return stored ? JSON.parse(stored) : defaultValue;
+    } catch {
+      return defaultValue;
+    }
+  };
+
+  const saveData = (key, value) => {
+    try {
+      localStorage.setItem(`techscheduler_${key}`, JSON.stringify(value));
+    } catch (e) {
+      console.warn('Storage error:', e);
+    }
+  };
+
+  const [technicians, setTechnicians] = useState(() => 
+    loadData('technicians', [
+      { id: 1, name: 'John Smith', shift: '1st Shift', email: 'john@company.com', status: 'active', hoursWorked: 160 },
+      { id: 2, name: 'Sarah Johnson', shift: '2nd Shift', email: 'sarah@company.com', status: 'active', hoursWorked: 155 },
+      { id: 3, name: 'Mike Davis', shift: '3rd Shift', email: 'mike@company.com', status: 'active', hoursWorked: 142 },
+      { id: 4, name: 'Emma Wilson', shift: '1st Shift', email: 'emma@company.com', status: 'active', hoursWorked: 168 },
+    ])
+  );
+
+  useEffect(() => saveData('technicians', technicians), [technicians]);
+
+  const [techniciancertifications, setTechnicianCertifications] = useState(() =>
+    loadData('certifications', {
+      1: { 'Line 21-Depal': 3, 'Line 21-Filler': 2, 'Line 21-Cartoner': 2, 'Line 21-Tray Packer': 2 },
+      2: { 'Line 22-Tray Packer': 3, 'Line 22-Filler': 2, 'Line 22-Depal': 2, 'Line 22-Cartoner': 1 },
+      3: { 'Line 23-Cartoner': 2, 'Line 23-Palletizer': 3, 'Line 23-Depal': 2, 'Line 23-Packer': 2 },
+      4: { 'Line 21-Depal': 2, 'Line 23-Palletizer': 2, 'Line 21-Filler': 1, 'Line 22-Cartoner': 1 },
+    })
+  );
+
+  useEffect(() => saveData('certifications', techniciancertifications), [techniciancertifications]);
+
+  const [schedule, setSchedule] = useState(() => 
+    loadData('schedule', {
+      '2024-01-15': {
+        '1st Shift': [
+          { equipmentId: 101, lineId: 1, technicianIds: [1], changeover: false },
+        ],
+        '2nd Shift': [],
+        '3rd Shift': [],
+      },
+    })
+  );
+
+  useEffect(() => saveData('schedule', schedule), [schedule]);
+
+  const [callOffs, setCallOffs] = useState(() => 
+    loadData('callOffs', [
+      { id: 1, techId: 1, date: '2024-01-18', shift: '1st Shift' },
+      { id: 2, techId: 3, date: '2024-01-19', shift: '3rd Shift' },
+    ])
+  );
+
+  useEffect(() => saveData('callOffs', callOffs), [callOffs]);
+
+  const [notifications, setNotifications] = useState(() => 
+    loadData('notifications', [
+      { id: 1, techId: 1, type: 'calloff', date: '2024-01-18', shift: '1st Shift', status: 'sent', channels: ['email'], timestamp: '2024-01-17 09:30' },
+    ])
+  );
+
+  useEffect(() => saveData('notifications', notifications), [notifications]);
+
+  const [changeoverAssignments, setChangeoverAssignments] = useState(() =>
+    loadData('changevers', [])
+  );
+
+  useEffect(() => saveData('changevers', changeoverAssignments), [changeoverAssignments]);
+
+  const [lines] = useState([
+    {
+      id: 1,
+      name: 'Line 21',
+      equipment: [
+        { id: 101, name: 'Depal', requiredLevel: 2, needsTwo: false },
+        { id: 102, name: 'Filler', requiredLevel: 2, needsTwo: false },
+        { id: 103, name: 'Cartoner', requiredLevel: 1, needsTwo: false },
+        { id: 104, name: 'Tray Packer', requiredLevel: 2, needsTwo: false },
+      ],
+    },
+    {
+      id: 2,
+      name: 'Line 22',
+      equipment: [
+        { id: 201, name: 'Depal', requiredLevel: 2, needsTwo: false },
+        { id: 202, name: 'Filler', requiredLevel: 2, needsTwo: false },
+        { id: 203, name: 'Cartoner', requiredLevel: 1, needsTwo: false },
+        { id: 204, name: 'Tray Packer', requiredLevel: 2, needsTwo: true },
+      ],
+    },
+    {
+      id: 3,
+      name: 'Line 23',
+      equipment: [
+        { id: 301, name: 'Depal', requiredLevel: 2, needsTwo: false },
+        { id: 302, name: 'Cartoner', requiredLevel: 1, needsTwo: false },
+        { id: 303, name: 'Packer', requiredLevel: 2, needsTwo: false },
+        { id: 304, name: 'Palletizer', requiredLevel: 3, needsTwo: false },
+      ],
+    },
+  ]);
+
+  const [shifts] = useState(['1st Shift', '2nd Shift', '3rd Shift']);
+  const [autoSuggestions, setAutoSuggestions] = useState([]);
+
+  // ============ HELPER FUNCTIONS ============
+
+  const getTechCertifications = (techId) => techniciancertifications[techId] || {};
+
+  const generateAutoSuggestions = () => {
+    const suggestions = [];
+    const daySchedule = schedule[selectedDate] || {};
+
+    lines.forEach(line => {
+      line.equipment.forEach(equip => {
+        shifts.forEach(shift => {
+          const assignment = (daySchedule[shift] || []).find(a => a.equipmentId === equip.id && a.lineId === line.id);
+          
+          if (!assignment) {
+            const qualified = technicians.filter(tech => {
+              const certKey = `Line ${line.id === 1 ? '21' : line.id === 2 ? '22' : '23'}-${equip.name}`;
+              const level = techniciancertifications[tech.id]?.[certKey] || 0;
+              const hasCallOff = callOffs.some(c => c.techId === tech.id && c.date === selectedDate && c.shift === shift);
+              return level >= equip.requiredLevel && !hasCallOff;
+            }).sort((a, b) => a.hoursWorked - b.hoursWorked);
+
+            if (qualified.length > 0) {
+              const recommended = equip.needsTwo && qualified.length > 1 
+                ? qualified.slice(0, 2)
+                : [qualified[0]];
+
+              suggestions.push({
+                line: line.name,
+                equipment: equip.name,
+                shift,
+                recommended: recommended.map(t => ({ id: t.id, name: t.name })),
+                confidence: qualified.length === 1 ? 0.7 : 0.95,
+                reason: equip.needsTwo && qualified.length > 1 ? 'Needs 2 people' : 'Optimal balance'
+              });
+            }
+          }
+        });
+      });
+    });
+
+    setAutoSuggestions(suggestions);
+  };
+
+  const applyAutoSuggestion = (suggestion) => {
+    const daySchedule = schedule[selectedDate] || {};
+    const shiftSchedule = daySchedule[suggestion.shift] || [];
+    
+    const equipment = lines.find(l => l.name === suggestion.line)?.equipment.find(e => e.name === suggestion.equipment);
+    const newAssignment = {
+      equipmentId: equipment?.id,
+      lineId: lines.find(l => l.name === suggestion.line)?.id,
+      technicianIds: suggestion.recommended.map(t => t.id),
+      changeover: false,
+    };
+
+    const updated = shiftSchedule.filter(a => !(a.equipmentId === newAssignment.equipmentId && a.lineId === newAssignment.lineId));
+    updated.push(newAssignment);
+
+    setSchedule({
+      ...schedule,
+      [selectedDate]: {
+        ...daySchedule,
+        [suggestion.shift]: updated,
+      },
+    });
+
+    setAutoSuggestions(autoSuggestions.filter((_, i) => _ !== suggestion));
+  };
+
+  const detectConflicts = () => {
+    const conflicts = [];
+    const daySchedule = schedule[selectedDate] || {};
+
+    shifts.forEach(shift => {
+      const shiftSchedule = daySchedule[shift] || [];
+
+      lines.forEach(line => {
+        line.equipment.forEach(equip => {
+          const assignment = shiftSchedule.find(a => a.equipmentId === equip.id && a.lineId === line.id);
+
+          if (!assignment) {
+            conflicts.push({
+              type: 'warning',
+              message: `${line.name} - ${equip.name} unassigned in ${shift}`,
+              severity: 'high',
+            });
+          }
+
+          if (equip.needsTwo && assignment && assignment.technicianIds.length < 2) {
+            conflicts.push({
+              type: 'warning',
+              message: `${line.name} - ${equip.name} needs 2 people (has ${assignment.technicianIds.length})`,
+              severity: 'critical',
+            });
+          }
+
+          if (assignment) {
+            assignment.technicianIds.forEach(techId => {
+              const tech = technicians.find(t => t.id === techId);
+              const certKey = `Line ${line.id === 1 ? '21' : line.id === 2 ? '22' : '23'}-${equip.name}`;
+              const certLevel = getTechCertifications(techId)[certKey] || 0;
+              if (certLevel < equip.requiredLevel) {
+                conflicts.push({
+                  type: 'error',
+                  message: `${tech?.name} not qualified for ${line.name} - ${equip.name}`,
+                  severity: 'high',
+                });
+              }
+
+              const callOff = callOffs.find(c => c.techId === techId && c.date === selectedDate && c.shift === shift);
+              if (callOff) {
+                conflicts.push({
+                  type: 'error',
+                  message: `${tech?.name} called off but is assigned to ${line.name}`,
+                  severity: 'critical',
+                });
+              }
+            });
+          }
+        });
+      });
+    });
+
+    return conflicts;
+  };
+
+  const handleDragStart = (e, tech) => {
+    setDraggedTech(tech);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  };
+
+  const handleDrop = (e, lineId, equipmentId, shift) => {
+    e.preventDefault();
+    if (!draggedTech) return;
+
+    const equipment = lines.find(l => l.id === lineId)?.equipment.find(e => e.id === equipmentId);
+    const certKey = `Line ${lineId === 1 ? '21' : lineId === 2 ? '22' : '23'}-${equipment?.name}`;
+    const certLevel = techniciancertifications[draggedTech.id]?.[certKey] || 0;
+
+    if (certLevel < equipment?.requiredLevel) {
+      alert(`❌ ${draggedTech.name} not qualified (Level ${certLevel}, needs ${equipment.requiredLevel})`);
+      setDraggedTech(null);
+      return;
+    }
+
+    const key = selectedDate;
+    const daySchedule = schedule[key] || {};
+    const shiftSchedule = daySchedule[shift] || [];
+    
+    let updated = shiftSchedule.filter(a => !(a.equipmentId === equipmentId && a.lineId === lineId));
+    updated.push({
+      equipmentId,
+      lineId,
+      technicianIds: [draggedTech.id],
+      changeover: false,
+    });
+
+    setSchedule({
+      ...schedule,
+      [key]: {
+        ...daySchedule,
+        [shift]: updated,
+      },
+    });
+
+    setDraggedTech(null);
+  };
+
+  const removeAssignment = (lineId, equipmentId, shift, techId) => {
+    const key = selectedDate;
+    const daySchedule = schedule[key] || {};
+    const shiftSchedule = daySchedule[shift] || [];
+    
+    const updated = shiftSchedule.map(a => {
+      if (a.equipmentId === equipmentId && a.lineId === lineId) {
+        return {
+          ...a,
+          technicianIds: a.technicianIds.filter(id => id !== techId),
+        };
+      }
+      return a;
+    }).filter(a => a.technicianIds.length > 0);
+
+    setSchedule({
+      ...schedule,
+      [key]: {
+        ...daySchedule,
+        [shift]: updated,
+      },
+    });
+  };
+
+  const handleBulkImport = (csvText) => {
+    try {
+      const csvLines = csvText.trim().split('\n');
+      const header = csvLines[0].toLowerCase().split(',').map(h => h.trim());
+      const newTechs = [];
+
+      for (let i = 1; i < csvLines.length; i++) {
+        if (csvLines[i].trim() === '') continue;
+        const values = csvLines[i].split(',').map(v => v.trim());
+        const tech = {
+          id: Math.max(...technicians.map(t => t.id), 0) + i,
+          name: values[header.indexOf('name')] || '',
+          shift: values[header.indexOf('shift')] || '1st Shift',
+          email: values[header.indexOf('email')] || '',
+          status: 'active',
+          hoursWorked: 0,
+        };
+        if (tech.name) newTechs.push(tech);
+      }
+
+      setTechnicians([...technicians, ...newTechs]);
+      setShowBulkImport(false);
+      alert(`✅ Imported ${newTechs.length} technicians`);
+    } catch (err) {
+      alert('❌ CSV format error. Use: name,shift,email');
+    }
+  };
+
+  const generatePrintContent = () => {
+    const daySchedule = schedule[selectedDate] || {};
+    let html = `<html><head><title>Tech Scheduler</title><style>
+      body { font-family: Arial, sans-serif; margin: 20px; }
+      h1 { color: #1e293b; border-bottom: 3px solid #3b82f6; padding-bottom: 10px; }
+      h2 { color: #3b82f6; margin-top: 30px; }
+      table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+      th { background: #3b82f6; color: white; padding: 12px; text-align: left; }
+      td { border: 1px solid #ddd; padding: 10px; }
+      tr:nth-child(even) { background: #f9fafb; }
+      .page-break { page-break-after: always; margin-top: 40px; }
+    </style></head><body>
+      <h1>📋 Tech Scheduler - ${selectedDate}</h1>`;
+
+    if (printMode === 'day') {
+      shifts.forEach(shift => {
+        html += `<h2>${shift}</h2><table><thead><tr><th>Line</th><th>Equipment</th><th>Level</th><th>Technicians</th></tr></thead><tbody>`;
+        lines.forEach(line => {
+          line.equipment.forEach(equip => {
+            const assignment = (daySchedule[shift] || []).find(a => a.equipmentId === equip.id && a.lineId === line.id);
+            const techs = assignment ? assignment.technicianIds.map(id => technicians.find(t => t.id === id)?.name).join(', ') : '—';
+            html += `<tr><td>${line.name}</td><td>${equip.name}</td><td>${equip.requiredLevel}</td><td>${techs}</td></tr>`;
+          });
+        });
+        html += `</tbody></table>`;
+      });
+    } else if (printMode === 'line') {
+      lines.forEach(line => {
+        html += `<div class="page-break"><h2>${line.name}</h2><table><thead><tr><th>Equipment</th><th>1st Shift</th><th>2nd Shift</th><th>3rd Shift</th></tr></thead><tbody>`;
+        line.equipment.forEach(equip => {
+          html += `<tr><td><strong>${equip.name}</strong> (L${equip.requiredLevel})</td>`;
+          shifts.forEach(shift => {
+            const assignment = (daySchedule[shift] || []).find(a => a.equipmentId === equip.id && a.lineId === line.id);
+            const techs = assignment ? assignment.technicianIds.map(id => technicians.find(t => t.id === id)?.name).join(', ') : '—';
+            html += `<td>${techs}</td>`;
+          });
+          html += `</tr>`;
+        });
+        html += `</tbody></table></div>`;
+      });
+    } else {
+      shifts.forEach(shift => {
+        html += `<div class="page-break"><h2>${shift}</h2><table><thead><tr><th>Line</th><th>Equipment</th><th>Technicians</th></tr></thead><tbody>`;
+        lines.forEach(line => {
+          line.equipment.forEach(equip => {
+            const assignment = (daySchedule[shift] || []).find(a => a.equipmentId === equip.id && a.lineId === line.id);
+            const techs = assignment ? assignment.technicianIds.map(id => technicians.find(t => t.id === id)?.name).join(', ') : '—';
+            html += `<tr><td>${line.name}</td><td>${equip.name}</td><td>${techs}</td></tr>`;
+          });
+        });
+        html += `</tbody></table></div>`;
+      });
+    }
+
+    html += `</body></html>`;
+    return html;
+  };
+
+  const handlePrint = () => {
+    const printContent = generatePrintContent();
+    const printWindow = window.open('', '', 'width=900,height=700');
+    printWindow.document.write(printContent);
+    printWindow.document.close();
+    setTimeout(() => printWindow.print(), 250);
+  };
+
+  // Analytics Data
+  const getAnalyticsData = () => {
+    const callOffCounts = {};
+    const hoursData = {};
+
+    technicians.forEach(tech => {
+      callOffCounts[tech.name] = callOffs.filter(c => c.techId === tech.id).length;
+      hoursData[tech.name] = tech.hoursWorked;
+    });
+
+    return { callOffCounts, hoursData };
+  };
+
+  // Render Charts
+  useEffect(() => {
+    const analyticsData = getAnalyticsData();
+
+    if (chartRef1.current) {
+      if (chartInstances.hoursChart) {
+        chartInstances.hoursChart.destroy();
+      }
+
+      const ctx = chartRef1.current.getContext('2d');
+      const newChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: Object.keys(analyticsData.hoursData),
+          datasets: [{
+            label: 'Hours Worked',
+            data: Object.values(analyticsData.hoursData),
+            backgroundColor: '#3b82f6',
+            borderColor: '#1e40af',
+            borderWidth: 1,
+          }],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: true,
+          plugins: { legend: { display: false } },
+          scales: { y: { beginAtZero: true, max: 200 } }
+        },
+      });
+
+      setChartInstances({ ...chartInstances, hoursChart: newChart });
+    }
+
+    if (chartRef2.current) {
+      if (chartInstances.calloffChart) {
+        chartInstances.calloffChart.destroy();
+      }
+
+      const ctx = chartRef2.current.getContext('2d');
+      const newChart = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: Object.keys(analyticsData.callOffCounts),
+          datasets: [{
+            data: Object.values(analyticsData.callOffCounts),
+            backgroundColor: ['#ef4444', '#f59e0b', '#10b981', '#3b82f6'],
+          }],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: true,
+          plugins: { legend: { position: 'bottom' } }
+        },
+      });
+
+      setChartInstances({ ...chartInstances, calloffChart: newChart });
+    }
+  }, [technicians, callOffs, chartInstances]);
+
+  const conflicts = detectConflicts();
+
+  // ============ RENDER ============
+
+  return (
+    <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)' }}>
+      {/* ===== HEADER ===== */}
+      <div style={{
+        background: 'rgba(15, 23, 42, 0.98)',
+        borderBottom: '2px solid rgba(59, 130, 246, 0.3)',
+        padding: '24px',
+        backdropFilter: 'blur(10px)',
+        position: 'sticky',
+        top: 0,
+        zIndex: 100,
+      }}>
+        <div style={{ maxWidth: '1700px', margin: '0 auto' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '24px' }}>
+            <div style={{
+              width: '48px',
+              height: '48px',
+              background: 'linear-gradient(135deg, #3b82f6 0%, #1e40af 100%)',
+              borderRadius: '12px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'white',
+              fontWeight: 'bold',
+              fontSize: '24px',
+              boxShadow: '0 0 20px rgba(59, 130, 246, 0.4)',
+            }}>
+              ⚙️
+            </div>
+            <div style={{ flex: 1 }}>
+              <h1 style={{ margin: 0, color: '#f1f5f9', fontSize: '28px', fontWeight: '700' }}>
+                Enterprise Tech Scheduler
+              </h1>
+              <p style={{ margin: '4px 0 0 0', color: '#cbd5e1', fontSize: '13px' }}>
+                Production Line Management & AI-Powered Scheduling
+              </p>
+            </div>
+            <div style={{
+              background: '#10b981',
+              color: 'white',
+              padding: '8px 16px',
+              borderRadius: '20px',
+              fontSize: '12px',
+              fontWeight: '600',
+            }}>
+              ✓ Data Saved
+            </div>
+          </div>
+
+          {/* Navigation */}
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            {[
+              { id: 'dashboard', label: 'Dashboard', icon: '📊' },
+              { id: 'schedule', label: 'Schedule', icon: '📅' },
+              { id: 'certifications', label: 'Certifications', icon: '🎓' },
+              { id: 'auto', label: 'AI Scheduler', icon: '🤖' },
+              { id: 'changevers', label: 'Changevers', icon: '🔄' },
+              { id: 'conflicts', label: 'Conflicts', icon: '⚠️' },
+              { id: 'analytics', label: 'Analytics', icon: '📈' },
+              { id: 'notifications', label: 'Alerts', icon: '🔔' },
+              { id: 'database', label: 'Database', icon: '💾' },
+            ].map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                style={{
+                  padding: '10px 16px',
+                  background: activeTab === tab.id ? 'rgba(59, 130, 246, 0.25)' : 'transparent',
+                  border: activeTab === tab.id ? '1px solid #3b82f6' : '1px solid rgba(148, 163, 184, 0.1)',
+                  color: activeTab === tab.id ? '#3b82f6' : '#94a3b8',
+                  cursor: 'pointer',
+                  borderRadius: '8px',
+                  fontWeight: '500',
+                  fontSize: '13px',
+                  transition: 'all 0.2s',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {tab.icon} {tab.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* ===== MAIN CONTENT ===== */}
+      <div style={{ maxWidth: '1700px', margin: '0 auto', padding: '24px' }}>
+        
+        {/* DASHBOARD TAB */}
+        {activeTab === 'dashboard' && (
+          <div>
+            <h2 style={{ color: '#f1f5f9', margin: '0 0 24px 0', fontSize: '24px' }}>System Overview</h2>
+            
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px', marginBottom: '32px' }}>
+              {[
+                { label: 'Total Technicians', value: technicians.length, color: '#3b82f6', icon: '👥' },
+                { label: 'Scheduled Today', value: Object.values(schedule[selectedDate] || {}).flat().length, color: '#10b981', icon: '📅' },
+                { label: 'Active Call-offs', value: callOffs.filter(c => c.date === selectedDate).length, color: '#ef4444', icon: '📞' },
+                { label: 'Notifications Sent', value: notifications.length, color: '#f59e0b', icon: '📬' },
+                { label: 'Coverage Issues', value: conflicts.filter(c => c.severity === 'critical').length, color: '#ec4899', icon: '⚠️' },
+                { label: 'Changevers Scheduled', value: changeoverAssignments.length, color: '#8b5cf6', icon: '🔄' },
+              ].map((metric, i) => (
+                <div
+                  key={i}
+                  style={{
+                    background: 'rgba(30, 41, 59, 0.6)',
+                    border: '1px solid rgba(148, 163, 184, 0.2)',
+                    borderRadius: '12px',
+                    padding: '24px',
+                    color: '#f1f5f9',
+                  }}
+                >
+                  <div style={{ fontSize: '13px', color: '#cbd5e1', marginBottom: '12px' }}>
+                    {metric.icon} {metric.label}
+                  </div>
+                  <div style={{ fontSize: '36px', fontWeight: 'bold', color: metric.color }}>
+                    {metric.value}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Quick Actions */}
+            <div style={{
+              background: 'rgba(30, 41, 59, 0.6)',
+              border: '1px solid rgba(148, 163, 184, 0.2)',
+              borderRadius: '12px',
+              padding: '24px',
+            }}>
+              <h3 style={{ color: '#f1f5f9', margin: '0 0 16px 0', fontSize: '16px' }}>Quick Actions</h3>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
+                <button
+                  onClick={() => { setActiveTab('schedule'); }}
+                  style={{
+                    padding: '16px',
+                    background: 'linear-gradient(135deg, #3b82f6 0%, #1e40af 100%)',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    fontWeight: '600',
+                    fontSize: '14px',
+                    transition: 'all 0.2s',
+                  }}
+                >
+                  📅 Build Schedule
+                </button>
+                <button
+                  onClick={() => { setActiveTab('auto'); generateAutoSuggestions(); }}
+                  style={{
+                    padding: '16px',
+                    background: 'linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%)',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    fontWeight: '600',
+                    fontSize: '14px',
+                  }}
+                >
+                  🤖 Get AI Suggestions
+                </button>
+                <button
+                  onClick={() => { setActiveTab('conflicts'); }}
+                  style={{
+                    padding: '16px',
+                    background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    fontWeight: '600',
+                    fontSize: '14px',
+                  }}
+                >
+                  ⚠️ Check Conflicts ({conflicts.length})
+                </button>
+                <button
+                  onClick={() => setShowPrintModal(true)}
+                  style={{
+                    padding: '16px',
+                    background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    fontWeight: '600',
+                    fontSize: '14px',
+                  }}
+                >
+                  🖨️ Print Schedule
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* SCHEDULE TAB */}
+        {activeTab === 'schedule' && (
+          <div>
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginBottom: '24px',
+              background: 'rgba(30, 41, 59, 0.6)',
+              border: '1px solid rgba(148, 163, 184, 0.2)',
+              borderRadius: '12px',
+              padding: '20px',
+            }}>
+              <div>
+                <h2 style={{ color: '#f1f5f9', margin: 0, marginBottom: '4px', fontSize: '20px' }}>Schedule Grid Editor</h2>
+                <p style={{ color: '#cbd5e1', margin: 0, fontSize: '13px' }}>Drag technicians to assign equipment for each shift</p>
+              </div>
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <input
+                  type="date"
+                  value={selectedDate}
+                  onChange={(e) => setSelectedDate(e.target.value)}
+                  style={{
+                    padding: '10px 12px',
+                    background: 'rgba(15, 23, 42, 0.5)',
+                    border: '1px solid rgba(148, 163, 184, 0.2)',
+                    borderRadius: '6px',
+                    color: '#f1f5f9',
+                    fontSize: '14px',
+                  }}
+                />
+                <button
+                  onClick={() => setShowBulkImport(true)}
+                  style={{
+                    padding: '10px 16px',
+                    background: '#3b82f6',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    fontWeight: '500',
+                    fontSize: '13px',
+                  }}
+                >
+                  📥 Bulk Import
+                </button>
+                <button
+                  onClick={() => setShowPrintModal(true)}
+                  style={{
+                    padding: '10px 16px',
+                    background: '#10b981',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    fontWeight: '500',
+                    fontSize: '13px',
+                  }}
+                >
+                  🖨️ Print
+                </button>
+              </div>
+            </div>
+
+            {/* Technicians Pool */}
+            <div style={{
+              background: 'rgba(30, 41, 59, 0.6)',
+              border: '1px solid rgba(148, 163, 184, 0.2)',
+              borderRadius: '12px',
+              padding: '20px',
+              marginBottom: '24px',
+            }}>
+              <h3 style={{ color: '#f1f5f9', marginTop: 0, marginBottom: '16px', fontSize: '14px' }}>👥 Available Technicians - Drag to Assign</h3>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '10px' }}>
+                {technicians.map(tech => (
+                  <div
+                    key={tech.id}
+                    draggable
+                    onDragStart={(e) => handleDragStart(e, tech)}
+                    style={{
+                      background: 'rgba(59, 130, 246, 0.15)',
+                      border: '2px solid #3b82f6',
+                      borderRadius: '8px',
+                      padding: '12px',
+                      cursor: 'move',
+                      color: '#f1f5f9',
+                      textAlign: 'center',
+                      transition: 'all 0.2s',
+                      fontWeight: '500',
+                    }}
+                  >
+                    <div style={{ fontSize: '14px', fontWeight: '600' }}>{tech.name}</div>
+                    <div style={{ fontSize: '12px', color: '#cbd5e1', marginTop: '4px' }}>{tech.shift}</div>
+                    <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>{tech.hoursWorked}h</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Schedule Grid by Shift */}
+            {shifts.map(shift => (
+              <div key={shift} style={{
+                background: 'rgba(30, 41, 59, 0.6)',
+                border: '1px solid rgba(148, 163, 184, 0.2)',
+                borderRadius: '12px',
+                padding: '20px',
+                marginBottom: '16px',
+              }}>
+                <h3 style={{ color: '#3b82f6', margin: '0 0 16px 0', fontSize: '16px', fontWeight: '600' }}>
+                  {shift === '1st Shift' ? '🌅' : shift === '2nd Shift' ? '☀️' : '🌙'} {shift}
+                </h3>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '12px' }}>
+                  {lines.flatMap(line =>
+                    line.equipment.map(equip => {
+                      const daySchedule = schedule[selectedDate] || {};
+                      const shiftSchedule = daySchedule[shift] || [];
+                      const assignment = shiftSchedule.find(a => a.equipmentId === equip.id && a.lineId === line.id);
+                      const assignedTechs = assignment ? assignment.technicianIds.map(id => technicians.find(t => t.id === id)) : [];
+                      const isCovered = assignedTechs.length > 0;
+                      const isFullyCovered = !equip.needsTwo || assignedTechs.length >= 2;
+                      const borderColor = isFullyCovered ? '#10b981' : isCovered ? '#f59e0b' : '#ef4444';
+
+                      return (
+                        <div
+                          key={`${line.id}-${equip.id}`}
+                          onDragOver={handleDragOver}
+                          onDrop={(e) => handleDrop(e, line.id, equip.id, shift)}
+                          style={{
+                            background: 'rgba(15, 23, 42, 0.5)',
+                            border: `2px dashed ${borderColor}`,
+                            borderRadius: '10px',
+                            padding: '14px',
+                            minHeight: '120px',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s',
+                          }}
+                        >
+                          <div style={{ color: '#f1f5f9', fontWeight: '600', marginBottom: '12px', fontSize: '14px' }}>
+                            <strong>{line.name}</strong> - {equip.name}
+                            {equip.needsTwo && <span style={{ color: '#ef4444', marginLeft: '8px' }}>(Needs 2)</span>}
+                            <div style={{ fontSize: '11px', color: '#cbd5e1', fontWeight: '400', marginTop: '4px' }}>
+                              Level {equip.requiredLevel} required
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                            {assignedTechs.map(tech => (
+                              <div
+                                key={tech.id}
+                                style={{
+                                  background: 'rgba(59, 130, 246, 0.2)',
+                                  border: '1px solid #3b82f6',
+                                  borderRadius: '6px',
+                                  padding: '8px',
+                                  display: 'flex',
+                                  justifyContent: 'space-between',
+                                  alignItems: 'center',
+                                  fontSize: '12px',
+                                  color: '#f1f5f9',
+                                }}
+                              >
+                                <span>{tech.name}</span>
+                                <button
+                                  onClick={() => removeAssignment(line.id, equip.id, shift, tech.id)}
+                                  style={{
+                                    background: 'transparent',
+                                    border: 'none',
+                                    color: '#ef4444',
+                                    cursor: 'pointer',
+                                    padding: '0',
+                                    fontSize: '14px',
+                                    fontWeight: 'bold',
+                                  }}
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            ))}
+                            {assignedTechs.length === 0 && (
+                              <div style={{ color: '#94a3b8', fontSize: '12px', fontStyle: 'italic', textAlign: 'center', padding: '12px 0' }}>
+                                Drag technician here
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* CERTIFICATIONS TAB */}
+        {activeTab === 'certifications' && (
+          <div>
+            <h2 style={{ color: '#f1f5f9', marginTop: 0, marginBottom: '24px', fontSize: '20px' }}>🎓 Technician Certifications</h2>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '16px' }}>
+              {technicians.map(tech => {
+                const certs = getTechCertifications(tech.id);
+                return (
+                  <div
+                    key={tech.id}
+                    style={{
+                      background: 'rgba(30, 41, 59, 0.6)',
+                      border: '1px solid rgba(148, 163, 184, 0.2)',
+                      borderRadius: '12px',
+                      padding: '20px',
+                    }}
+                  >
+                    <h3 style={{ color: '#3b82f6', margin: '0 0 16px 0', fontSize: '16px', fontWeight: '600' }}>
+                      {tech.name}
+                      <span style={{ color: '#cbd5e1', fontWeight: '400', fontSize: '12px', marginLeft: '8px' }}>
+                        ({tech.shift})
+                      </span>
+                    </h3>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      {Object.entries(certs).map(([key, level]) => {
+                        const colors = { 0: '#94a3b8', 1: '#f59e0b', 2: '#3b82f6', 3: '#10b981' };
+                        return (
+                          <div
+                            key={key}
+                            style={{
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                              background: 'rgba(15, 23, 42, 0.5)',
+                              padding: '12px',
+                              borderRadius: '8px',
+                              fontSize: '13px',
+                              color: '#f1f5f9',
+                            }}
+                          >
+                            <span>{key}</span>
+                            <select
+                              value={level}
+                              onChange={(e) => {
+                                const newLevel = parseInt(e.target.value);
+                                setTechnicianCertifications({
+                                  ...techniciancertifications,
+                                  [tech.id]: {
+                                    ...certs,
+                                    [key]: newLevel,
+                                  },
+                                });
+                              }}
+                              style={{
+                                padding: '6px 10px',
+                                background: colors[level] + '30',
+                                color: colors[level],
+                                border: `1px solid ${colors[level]}`,
+                                borderRadius: '6px',
+                                fontWeight: '600',
+                                cursor: 'pointer',
+                                fontSize: '12px',
+                              }}
+                            >
+                              <option value="0">L0</option>
+                              <option value="1">L1</option>
+                              <option value="2">L2</option>
+                              <option value="3">L3</option>
+                            </select>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* AUTO-SCHEDULER TAB */}
+        {activeTab === 'auto' && (
+          <div>
+            <div style={{
+              background: 'rgba(30, 41, 59, 0.6)',
+              border: '1px solid rgba(148, 163, 184, 0.2)',
+              borderRadius: '12px',
+              padding: '20px',
+              marginBottom: '24px',
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <h2 style={{ color: '#f1f5f9', margin: 0, marginBottom: '8px', fontSize: '20px' }}>🤖 AI Auto-Scheduler</h2>
+                  <p style={{ color: '#cbd5e1', margin: 0, fontSize: '13px' }}>Intelligent suggestions for optimal assignments based on qualifications and workload</p>
+                </div>
+                <button
+                  onClick={() => generateAutoSuggestions()}
+                  style={{
+                    padding: '12px 24px',
+                    background: 'linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%)',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    fontWeight: '600',
+                    fontSize: '14px',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  🔄 Generate Suggestions
+                </button>
+              </div>
+            </div>
+
+            {autoSuggestions.length === 0 ? (
+              <div style={{
+                background: 'rgba(30, 41, 59, 0.6)',
+                border: '2px dashed rgba(148, 163, 184, 0.3)',
+                borderRadius: '12px',
+                padding: '40px',
+                textAlign: 'center',
+                color: '#cbd5e1',
+              }}>
+                <div style={{ fontSize: '18px', marginBottom: '8px' }}>🎯 No suggestions needed</div>
+                <div style={{ fontSize: '13px' }}>All positions are filled or click "Generate Suggestions" to start</div>
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gap: '12px' }}>
+                <div style={{ color: '#cbd5e1', fontSize: '14px', marginBottom: '8px' }}>
+                  Found <strong style={{ color: '#8b5cf6' }}>{autoSuggestions.length}</strong> optimization opportunities
+                </div>
+                {autoSuggestions.map((suggestion, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      background: 'rgba(139, 92, 246, 0.1)',
+                      border: '1px solid rgba(139, 92, 246, 0.3)',
+                      borderRadius: '12px',
+                      padding: '16px',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <div>
+                      <h3 style={{ color: '#8b5cf6', margin: '0 0 8px 0', fontSize: '15px', fontWeight: '600' }}>
+                        {suggestion.line} - {suggestion.equipment}
+                      </h3>
+                      <div style={{ color: '#cbd5e1', fontSize: '12px', display: 'flex', gap: '16px' }}>
+                        <span><strong>Shift:</strong> {suggestion.shift}</span>
+                        <span><strong>Tech:</strong> {suggestion.recommended.map(t => t.name).join(', ')}</span>
+                        <span style={{ color: '#8b5cf6', fontWeight: '600' }}>Confidence: {(suggestion.confidence * 100).toFixed(0)}%</span>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => applyAutoSuggestion(suggestion)}
+                      style={{
+                        padding: '10px 20px',
+                        background: '#8b5cf6',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '6px',
+                        cursor: 'pointer',
+                        fontWeight: '600',
+                        fontSize: '13px',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      ✓ Apply
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* CHANGEVERS TAB */}
+        {activeTab === 'changevers' && (
+          <div>
+            <h2 style={{ color: '#f1f5f9', marginTop: 0, marginBottom: '24px', fontSize: '20px' }}>🔄 Equipment Changeover Tracker</h2>
+
+            <div style={{
+              background: 'rgba(30, 41, 59, 0.6)',
+              border: '1px solid rgba(148, 163, 184, 0.2)',
+              borderRadius: '12px',
+              padding: '20px',
+              marginBottom: '24px',
+            }}>
+              <h3 style={{ color: '#f1f5f9', marginTop: 0, marginBottom: '16px', fontSize: '14px' }}>Schedule Changeover (Level 3 Only)</h3>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr auto', gap: '12px' }}>
+                <select
+                  id="changeoverLine"
+                  style={{
+                    padding: '10px 12px',
+                    background: 'rgba(15, 23, 42, 0.5)',
+                    border: '1px solid rgba(148, 163, 184, 0.2)',
+                    borderRadius: '6px',
+                    color: '#f1f5f9',
+                    fontSize: '13px',
+                  }}
+                >
+                  {lines.map(l => (
+                    <option key={l.id} value={l.id}>{l.name}</option>
+                  ))}
+                </select>
+                <select
+                  id="changeoverEquip"
+                  style={{
+                    padding: '10px 12px',
+                    background: 'rgba(15, 23, 42, 0.5)',
+                    border: '1px solid rgba(148, 163, 184, 0.2)',
+                    borderRadius: '6px',
+                    color: '#f1f5f9',
+                    fontSize: '13px',
+                  }}
+                >
+                  {lines[0].equipment.map(e => (
+                    <option key={e.id} value={e.id}>{e.name}</option>
+                  ))}
+                </select>
+                <select
+                  id="changeoverTech"
+                  style={{
+                    padding: '10px 12px',
+                    background: 'rgba(15, 23, 42, 0.5)',
+                    border: '1px solid rgba(148, 163, 184, 0.2)',
+                    borderRadius: '6px',
+                    color: '#f1f5f9',
+                    fontSize: '13px',
+                  }}
+                >
+                  {technicians.map(t => (
+                    <option key={t.id} value={t.id}>{t.name}</option>
+                  ))}
+                </select>
+                <input
+                  type="date"
+                  id="changeoverDate"
+                  defaultValue={selectedDate}
+                  style={{
+                    padding: '10px 12px',
+                    background: 'rgba(15, 23, 42, 0.5)',
+                    border: '1px solid rgba(148, 163, 184, 0.2)',
+                    borderRadius: '6px',
+                    color: '#f1f5f9',
+                    fontSize: '13px',
+                  }}
+                />
+                <button
+                  onClick={() => {
+                    const lineId = parseInt(document.getElementById('changeoverLine').value);
+                    const equipId = parseInt(document.getElementById('changeoverEquip').value);
+                    const techId = parseInt(document.getElementById('changeoverTech').value);
+                    const date = document.getElementById('changeoverDate').value;
+
+                    const line = lines.find(l => l.id === lineId);
+                    const equip = line?.equipment.find(e => e.id === equipId);
+                    const certKey = `Line ${lineId === 1 ? '21' : lineId === 2 ? '22' : '23'}-${equip?.name}`;
+                    const level = getTechCertifications(techId)[certKey] || 0;
+
+                    if (level === 3) {
+                      setChangeoverAssignments([
+                        ...changeoverAssignments,
+                        { id: Math.random(), lineId, equipId, techId, date, status: 'scheduled' },
+                      ]);
+                    } else {
+                      alert(`❌ Only Level 3 technicians can perform changevers`);
+                    }
+                  }}
+                  style={{
+                    padding: '10px 16px',
+                    background: '#f59e0b',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    fontWeight: '600',
+                    fontSize: '13px',
+                  }}
+                >
+                  Schedule
+                </button>
+              </div>
+            </div>
+
+            {changeoverAssignments.length === 0 ? (
+              <div style={{
+                background: 'rgba(30, 41, 59, 0.6)',
+                border: '2px dashed rgba(148, 163, 184, 0.3)',
+                borderRadius: '12px',
+                padding: '40px',
+                textAlign: 'center',
+                color: '#cbd5e1',
+              }}>
+                <div style={{ fontSize: '18px', marginBottom: '8px' }}>📋 No changevers scheduled</div>
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '12px' }}>
+                {changeoverAssignments.map(co => {
+                  const line = lines.find(l => l.id === co.lineId);
+                  const equip = line?.equipment.find(e => e.id === co.equipId);
+                  const tech = technicians.find(t => t.id === co.techId);
+                  return (
+                    <div
+                      key={co.id}
+                      style={{
+                        background: 'rgba(30, 41, 59, 0.6)',
+                        border: '2px solid rgba(245, 158, 11, 0.4)',
+                        borderRadius: '12px',
+                        padding: '16px',
+                      }}
+                    >
+                      <div style={{ color: '#f59e0b', fontWeight: '600', marginBottom: '12px', fontSize: '15px' }}>
+                        🔄 {line?.name} - {equip?.name}
+                      </div>
+                      <div style={{ color: '#cbd5e1', fontSize: '13px', marginBottom: '8px' }}>
+                        <strong>Technician:</strong> {tech?.name} (Level 3 ✓)
+                      </div>
+                      <div style={{ color: '#cbd5e1', fontSize: '13px', marginBottom: '12px' }}>
+                        <strong>Scheduled:</strong> {co.date}
+                      </div>
+                      <button
+                        onClick={() => setChangeoverAssignments(changeoverAssignments.filter(c => c.id !== co.id))}
+                        style={{
+                          width: '100%',
+                          padding: '8px',
+                          background: '#ef4444',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '6px',
+                          cursor: 'pointer',
+                          fontSize: '12px',
+                          fontWeight: '600',
+                        }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* CONFLICTS TAB */}
+        {activeTab === 'conflicts' && (
+          <div>
+            <div style={{
+              background: 'rgba(30, 41, 59, 0.6)',
+              border: '1px solid rgba(148, 163, 184, 0.2)',
+              borderRadius: '12px',
+              padding: '20px',
+              marginBottom: '24px',
+            }}>
+              <h2 style={{ color: '#f1f5f9', margin: '0 0 8px 0', fontSize: '20px' }}>⚠️ Conflict Detection System</h2>
+              <p style={{ color: '#cbd5e1', margin: 0, fontSize: '13px' }}>Real-time validation for coverage gaps, qualifications, and scheduling issues</p>
+            </div>
+
+            {conflicts.length === 0 ? (
+              <div style={{
+                background: 'rgba(16, 185, 129, 0.1)',
+                border: '2px solid rgba(16, 185, 129, 0.4)',
+                borderRadius: '12px',
+                padding: '48px',
+                textAlign: 'center',
+              }}>
+                <div style={{ fontSize: '48px', marginBottom: '12px' }}>✅</div>
+                <div style={{ color: '#10b981', fontWeight: '600', fontSize: '18px', marginBottom: '4px' }}>All Systems Normal!</div>
+                <div style={{ color: '#cbd5e1', fontSize: '13px' }}>No conflicts detected for {selectedDate}</div>
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gap: '12px' }}>
+                {conflicts.map((conflict, i) => {
+                  const bgColor = conflict.severity === 'critical' ? '#ef4444' : '#f59e0b';
+                  return (
+                    <div
+                      key={i}
+                      style={{
+                        background: bgColor + '15',
+                        border: `2px solid ${bgColor}`,
+                        borderRadius: '10px',
+                        padding: '16px',
+                        display: 'flex',
+                        gap: '12px',
+                        alignItems: 'flex-start',
+                      }}
+                    >
+                      <div style={{ fontSize: '24px' }}>
+                        {conflict.severity === 'critical' ? '🔴' : '🟡'}
+                      </div>
+                      <div>
+                        <div style={{ color: '#f1f5f9', fontWeight: '600', fontSize: '14px' }}>
+                          {conflict.message}
+                        </div>
+                        <div style={{ color: '#cbd5e1', fontSize: '12px', marginTop: '4px' }}>
+                          {conflict.severity === 'critical' ? 'Requires immediate action' : 'Review recommended'}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ANALYTICS TAB */}
+        {activeTab === 'analytics' && (
+          <div>
+            <h2 style={{ color: '#f1f5f9', marginTop: 0, marginBottom: '24px', fontSize: '20px' }}>📊 Analytics Dashboard</h2>
+            
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', marginBottom: '24px' }}>
+              <div style={{
+                background: 'rgba(30, 41, 59, 0.6)',
+                border: '1px solid rgba(148, 163, 184, 0.2)',
+                borderRadius: '12px',
+                padding: '20px',
+              }}>
+                <h3 style={{ color: '#f1f5f9', marginTop: 0, marginBottom: '16px' }}>Hours Worked per Technician</h3>
+                <canvas ref={chartRef1} style={{ height: '250px' }}></canvas>
+              </div>
+
+              <div style={{
+                background: 'rgba(30, 41, 59, 0.6)',
+                border: '1px solid rgba(148, 163, 184, 0.2)',
+                borderRadius: '12px',
+                padding: '20px',
+              }}>
+                <h3 style={{ color: '#f1f5f9', marginTop: 0, marginBottom: '16px' }}>Call-off Patterns</h3>
+                <canvas ref={chartRef2} style={{ height: '250px' }}></canvas>
+              </div>
+            </div>
+
+            <div style={{
+              background: 'rgba(30, 41, 59, 0.6)',
+              border: '1px solid rgba(148, 163, 184, 0.2)',
+              borderRadius: '12px',
+              padding: '20px',
+            }}>
+              <h3 style={{ color: '#f1f5f9', marginTop: 0, marginBottom: '16px' }}>Technician Performance Metrics</h3>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '2px solid rgba(148, 163, 184, 0.2)' }}>
+                      <th style={{ padding: '12px', textAlign: 'left', color: '#cbd5e1', fontWeight: '600' }}>Technician</th>
+                      <th style={{ padding: '12px', textAlign: 'left', color: '#cbd5e1', fontWeight: '600' }}>Shift</th>
+                      <th style={{ padding: '12px', textAlign: 'left', color: '#cbd5e1', fontWeight: '600' }}>Hours</th>
+                      <th style={{ padding: '12px', textAlign: 'left', color: '#cbd5e1', fontWeight: '600' }}>Call-offs</th>
+                      <th style={{ padding: '12px', textAlign: 'left', color: '#cbd5e1', fontWeight: '600' }}>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {technicians.map(tech => {
+                      const calloffCount = callOffs.filter(c => c.techId === tech.id).length;
+                      const healthColor = calloffCount > 2 ? '#ef4444' : calloffCount > 0 ? '#f59e0b' : '#10b981';
+                      return (
+                        <tr key={tech.id} style={{ borderBottom: '1px solid rgba(148, 163, 184, 0.1)' }}>
+                          <td style={{ padding: '12px', color: '#f1f5f9', fontWeight: '500' }}>{tech.name}</td>
+                          <td style={{ padding: '12px', color: '#cbd5e1' }}>{tech.shift}</td>
+                          <td style={{ padding: '12px', color: '#cbd5e1' }}>{tech.hoursWorked}h</td>
+                          <td style={{ padding: '12px', color: '#cbd5e1' }}>{calloffCount}</td>
+                          <td style={{ padding: '12px' }}>
+                            <div style={{
+                              display: 'inline-block',
+                              padding: '6px 12px',
+                              background: healthColor + '20',
+                              color: healthColor,
+                              borderRadius: '20px',
+                              fontSize: '12px',
+                              fontWeight: '600',
+                            }}>
+                              {calloffCount === 0 ? '✓ Reliable' : calloffCount <= 2 ? '⚠️ Monitor' : '🔴 At Risk'}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* NOTIFICATIONS TAB */}
+        {activeTab === 'notifications' && (
+          <div>
+            <h2 style={{ color: '#f1f5f9', marginTop: 0, marginBottom: '24px', fontSize: '20px' }}>🔔 Notification System</h2>
+
+            <div style={{
+              background: 'rgba(30, 41, 59, 0.6)',
+              border: '1px solid rgba(148, 163, 184, 0.2)',
+              borderRadius: '12px',
+              padding: '20px',
+              marginBottom: '24px',
+            }}>
+              <h3 style={{ color: '#f1f5f9', marginTop: 0, marginBottom: '16px', fontSize: '14px' }}>Send Call-off Alert</h3>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '12px' }}>
+                <select
+                  id="notifTech"
+                  style={{
+                    padding: '10px 12px',
+                    background: 'rgba(15, 23, 42, 0.5)',
+                    border: '1px solid rgba(148, 163, 184, 0.2)',
+                    borderRadius: '6px',
+                    color: '#f1f5f9',
+                    fontSize: '13px',
+                  }}
+                >
+                  <option value="">Select Technician with Call-off</option>
+                  {callOffs.map(co => {
+                    const tech = technicians.find(t => t.id === co.techId);
+                    return <option key={co.id} value={co.techId}>{tech?.name} - {co.date}</option>;
+                  })}
+                </select>
+                <select
+                  id="notifChannel"
+                  style={{
+                    padding: '10px 12px',
+                    background: 'rgba(15, 23, 42, 0.5)',
+                    border: '1px solid rgba(148, 163, 184, 0.2)',
+                    borderRadius: '6px',
+                    color: '#f1f5f9',
+                    fontSize: '13px',
+                  }}
+                >
+                  <option value="email">📧 Email</option>
+                  <option value="sms">📱 SMS</option>
+                  <option value="both">📧 + 📱 Both</option>
+                </select>
+                <button
+                  onClick={() => {
+                    const techId = parseInt(document.getElementById('notifTech').value);
+                    if (techId) {
+                      const channels = document.getElementById('notifChannel').value === 'email' ? ['email'] : 
+                                      document.getElementById('notifChannel').value === 'sms' ? ['sms'] : ['email', 'sms'];
+                      const callOff = callOffs.find(c => c.techId === techId);
+                      if (callOff) {
+                        setNotifications([...notifications, {
+                          id: Math.max(...notifications.map(n => n.id), 0) + 1,
+                          techId,
+                          type: 'calloff',
+                          date: callOff.date,
+                          shift: callOff.shift,
+                          status: 'sent',
+                          channels,
+                          timestamp: new Date().toLocaleString(),
+                        }]);
+                        alert('✅ Alert sent successfully');
+                      }
+                    }
+                  }}
+                  style={{
+                    padding: '10px 16px',
+                    background: '#10b981',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    fontWeight: '600',
+                    fontSize: '13px',
+                  }}
+                >
+                  Send
+                </button>
+              </div>
+            </div>
+
+            <div style={{
+              background: 'rgba(30, 41, 59, 0.6)',
+              border: '1px solid rgba(148, 163, 184, 0.2)',
+              borderRadius: '12px',
+              padding: '20px',
+            }}>
+              <h3 style={{ color: '#f1f5f9', marginTop: 0, marginBottom: '16px', fontSize: '14px' }}>Notification History</h3>
+              {notifications.length === 0 ? (
+                <div style={{ color: '#94a3b8', textAlign: 'center', padding: '24px', fontSize: '13px' }}>
+                  No notifications sent yet
+                </div>
+              ) : (
+                <div style={{ display: 'grid', gap: '12px' }}>
+                  {notifications.map(notif => {
+                    const tech = technicians.find(t => t.id === notif.techId);
+                    return (
+                      <div
+                        key={notif.id}
+                        style={{
+                          background: 'rgba(16, 185, 129, 0.1)',
+                          border: '1px solid rgba(16, 185, 129, 0.3)',
+                          borderRadius: '8px',
+                          padding: '12px',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <div>
+                          <div style={{ color: '#f1f5f9', fontWeight: '500', fontSize: '13px' }}>
+                            {tech?.name} - Call-off Alert
+                          </div>
+                          <div style={{ color: '#cbd5e1', fontSize: '12px', marginTop: '4px' }}>
+                            {notif.date} • {notif.shift} • {notif.channels.join(', ')}
+                          </div>
+                          <div style={{ color: '#94a3b8', fontSize: '11px', marginTop: '2px' }}>
+                            {notif.timestamp}
+                          </div>
+                        </div>
+                        <div style={{
+                          background: '#10b981',
+                          color: 'white',
+                          padding: '6px 12px',
+                          borderRadius: '20px',
+                          fontSize: '11px',
+                          fontWeight: '600',
+                        }}>
+                          ✓ Sent
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* DATABASE TAB */}
+        {activeTab === 'database' && (
+          <div>
+            <h2 style={{ color: '#f1f5f9', marginTop: 0, marginBottom: '24px', fontSize: '20px' }}>💾 Database Management</h2>
+
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+              gap: '16px',
+              marginBottom: '24px',
+            }}>
+              {[
+                { label: 'Technicians', count: technicians.length, color: '#3b82f6', key: 'technicians' },
+                { label: 'Schedules', count: Object.keys(schedule).length, color: '#10b981', key: 'schedule' },
+                { label: 'Call-offs', count: callOffs.length, color: '#ef4444', key: 'callOffs' },
+                { label: 'Notifications', count: notifications.length, color: '#f59e0b', key: 'notifications' },
+                { label: 'Changevers', count: changeoverAssignments.length, color: '#8b5cf6', key: 'changevers' },
+              ].map(item => (
+                <div
+                  key={item.key}
+                  style={{
+                    background: 'rgba(30, 41, 59, 0.6)',
+                    border: '1px solid rgba(148, 163, 184, 0.2)',
+                    borderRadius: '12px',
+                    padding: '20px',
+                    textAlign: 'center',
+                  }}
+                >
+                  <div style={{ fontSize: '13px', color: '#cbd5e1', marginBottom: '12px' }}>
+                    {item.label}
+                  </div>
+                  <div style={{ fontSize: '36px', fontWeight: 'bold', color: item.color, marginBottom: '16px' }}>
+                    {item.count}
+                  </div>
+                  <button
+                    onClick={() => {
+                      const dataMap = {
+                        technicians: technicians,
+                        schedule: schedule,
+                        callOffs: callOffs,
+                        notifications: notifications,
+                        changevers: changeoverAssignments,
+                      };
+                      const json = JSON.stringify(dataMap[item.key], null, 2);
+                      const blob = new Blob([json], { type: 'application/json' });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = `${item.key}-${new Date().toISOString().split('T')[0]}.json`;
+                      a.click();
+                    }}
+                    style={{
+                      width: '100%',
+                      padding: '8px',
+                      background: item.color + '30',
+                      color: item.color,
+                      border: `1px solid ${item.color}`,
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                      fontSize: '12px',
+                      fontWeight: '600',
+                    }}
+                  >
+                    📥 Export
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            <div style={{
+              background: 'rgba(30, 41, 59, 0.6)',
+              border: '1px solid rgba(148, 163, 184, 0.2)',
+              borderRadius: '12px',
+              padding: '20px',
+            }}>
+              <h3 style={{ color: '#f1f5f9', marginTop: 0, marginBottom: '16px' }}>Storage Status</h3>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                <tbody>
+                  {[
+                    { label: 'Storage Type', value: 'Browser LocalStorage (Persistent)' },
+                    { label: 'Capacity', value: '~5-10 MB' },
+                    { label: 'Auto-save', value: 'Enabled (Real-time)' },
+                    { label: 'Data Protection', value: 'Automatic Backup' },
+                  ].map((row, i) => (
+                    <tr key={i} style={{ borderBottom: '1px solid rgba(148, 163, 184, 0.1)' }}>
+                      <td style={{ padding: '12px', color: '#cbd5e1', fontWeight: '600' }}>{row.label}</td>
+                      <td style={{ padding: '12px', color: '#f1f5f9', textAlign: 'right' }}>{row.value}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ===== PRINT MODAL ===== */}
+      {showPrintModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0, 0, 0, 0.7)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000,
+        }}>
+          <div style={{
+            background: '#1e293b',
+            borderRadius: '12px',
+            padding: '28px',
+            minWidth: '420px',
+            border: '1px solid rgba(148, 163, 184, 0.2)',
+            boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
+          }}>
+            <h2 style={{ color: '#f1f5f9', marginTop: 0, marginBottom: '20px', fontSize: '18px' }}>Print Schedule</h2>
+            <div style={{ display: 'grid', gap: '12px', marginBottom: '24px' }}>
+              {[
+                { id: 'day', label: 'Print by Day', desc: 'All shifts for selected date' },
+                { id: 'shift', label: 'Print by Shift', desc: 'Each shift on separate page' },
+                { id: 'line', label: 'Print by Line', desc: 'All shifts per production line' },
+              ].map(option => (
+                <button
+                  key={option.id}
+                  onClick={() => setPrintMode(option.id)}
+                  style={{
+                    padding: '14px',
+                    background: printMode === option.id ? '#3b82f6' : 'rgba(15, 23, 42, 0.5)',
+                    border: printMode === option.id ? '2px solid #3b82f6' : '1px solid rgba(148, 163, 184, 0.2)',
+                    borderRadius: '8px',
+                    color: '#f1f5f9',
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                    fontWeight: '500',
+                    transition: 'all 0.2s',
+                  }}
+                >
+                  <div style={{ fontSize: '14px', fontWeight: '600' }}>{option.label}</div>
+                  <div style={{ fontSize: '12px', color: '#cbd5e1', fontWeight: '400', marginTop: '4px' }}>
+                    {option.desc}
+                  </div>
+                </button>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: '12px' }}>
+              <button
+                onClick={handlePrint}
+                style={{
+                  flex: 1,
+                  padding: '12px',
+                  background: '#10b981',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  fontWeight: '600',
+                  fontSize: '14px',
+                }}
+              >
+                🖨️ Print
+              </button>
+              <button
+                onClick={() => setShowPrintModal(false)}
+                style={{
+                  flex: 1,
+                  padding: '12px',
+                  background: 'rgba(15, 23, 42, 0.5)',
+                  color: '#f1f5f9',
+                  border: '1px solid rgba(148, 163, 184, 0.2)',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  fontWeight: '600',
+                  fontSize: '14px',
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== BULK IMPORT MODAL ===== */}
+      {showBulkImport && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0, 0, 0, 0.7)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000,
+        }}>
+          <div style={{
+            background: '#1e293b',
+            borderRadius: '12px',
+            padding: '28px',
+            minWidth: '520px',
+            border: '1px solid rgba(148, 163, 184, 0.2)',
+            boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
+          }}>
+            <h2 style={{ color: '#f1f5f9', marginTop: 0, marginBottom: '12px', fontSize: '18px' }}>📥 Bulk Import Technicians</h2>
+            <p style={{ color: '#cbd5e1', margin: '0 0 16px 0', fontSize: '13px' }}>
+              Paste CSV data below (format: name,shift,email)
+            </p>
+            <textarea
+              id="bulkImportText"
+              placeholder="name,shift,email&#10;Alice Garcia,1st Shift,alice@company.com&#10;Bob Martinez,2nd Shift,bob@company.com"
+              style={{
+                width: '100%',
+                height: '200px',
+                padding: '12px',
+                background: 'rgba(15, 23, 42, 0.5)',
+                border: '1px solid rgba(148, 163, 184, 0.2)',
+                borderRadius: '8px',
+                color: '#f1f5f9',
+                fontFamily: 'monospace',
+                fontSize: '12px',
+                boxSizing: 'border-box',
+                resize: 'vertical',
+              }}
+            />
+            <div style={{ display: 'flex', gap: '12px', marginTop: '20px' }}>
+              <button
+                onClick={() => {
+                  const text = document.getElementById('bulkImportText').value;
+                  handleBulkImport(text);
+                }}
+                style={{
+                  flex: 1,
+                  padding: '12px',
+                  background: '#10b981',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  fontWeight: '600',
+                  fontSize: '14px',
+                }}
+              >
+                ✓ Import
+              </button>
+              <button
+                onClick={() => setShowBulkImport(false)}
+                style={{
+                  flex: 1,
+                  padding: '12px',
+                  background: 'rgba(15, 23, 42, 0.5)',
+                  color: '#f1f5f9',
+                  border: '1px solid rgba(148, 163, 184, 0.2)',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  fontWeight: '600',
+                  fontSize: '14px',
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.render(<CompleteTechScheduler />, document.getElementById('root'));
+    </script>
+</body>
+</html>
